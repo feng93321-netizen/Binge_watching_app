@@ -1,0 +1,284 @@
+﻿{% extends "base.html" %}
+{% block title %}茶杯狐{% endblock %}
+{% block main %}
+<div class="mobile-main-type-extra">
+    <div class="head flex">
+        <div class="banner">
+            <div class="banner-box swiper-container">
+                <div class="swiper-wrapper">
+                    {% for b in banners %}
+                    <div class="swiper-slide">
+                        <a class="img-lazyload" style="background-image: url(/poster/{{ b.id }}.jpg);display:block" href="/video/{{ b.id }}.html"></a>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="swiper-pagination"></div>
+            </div>
+        </div>
+        <div class="home-box border-shadow">
+            <div class="home-nav flex">
+                <div class="nav flex"><a href="/type/1.html" class="nav-block"><img src="/static/images/dy.svg"><div class="nav-title">电影</div></a></div>
+                <div class="nav flex"><a href="/type/2.html" class="nav-block"><img src="/static/images/tv.svg"><div class="nav-title">电视剧</div></a></div>
+                <div class="nav flex"><a href="/type/3.html" class="nav-block"><img src="/static/images/zy.svg"><div class="nav-title">综艺</div></a></div>
+                <div class="nav flex"><a href="/type/4.html" class="nav-block"><img src="/static/images/dm.svg"><div class="nav-title">动漫</div></a></div>
+                <div class="nav flex"><a href="/gbook.html" class="nav-block"><img src="/static/images/xp.svg"><div class="nav-title">留言</div></a></div>
+                <div class="nav flex"><a href="javascript:void(0)" class="nav-block" onclick="document.getElementById('downloadSection').scrollIntoView({behavior:'smooth'})"><img src="/static/images/xp.svg"><div class="nav-title">下载</div></a></div>
+            </div>
+        </div>
+    </div>
+    <div class="panel border-shadow" id="downloadSection" style="display:none">
+        <div class="list">
+            <div class="container-more">
+                <div class="left-section">
+                    <span class="movie-list-title">离线下载</span>
+                </div>
+            </div>
+            <div class="tab-content active" id="downloadList" style="padding:0 14px 10px"></div>
+        </div>
+    </div>
+    {% if hot_movies %}
+    <div class="panel border-shadow" data-index="hot">
+        <div class="list">
+            <div class="container-more">
+                <div class="left-section">
+                    <span class="movie-list-title">热映</span>
+                </div>
+            </div>
+            <div class="tab-content active">
+                <div class="movie-list-body flex">
+                    {% for v in hot_movies %}
+                    <div class="movie-list-item">
+                        <a href="/video/{{ v.id }}.html?title={{ v.title|urlencode }}" title="{{ v.title }}">
+                            <div class="movie-post-wrapper">
+                                <div class="movie-post-lazyload Lazy" data-original="/poster/{{ v.id }}.jpg" style="background-image: url('/static/images/load.png')"></div>
+                                <div class="movie-item-score">{{ v.year }}</div>
+                                <div class="movie-item-note">{{ v.note }}</div>
+                            </div>
+                            <div class="movie-info">
+                                <div class="movie-title txtHide" title="{{ v.title }}影片信息">{{ v.title }}</div>
+                                <div class="movie-sub txtHide" title="{{ v.title }}影片信息">{{ v.desc }}</div>
+                            </div>
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% for part in parts %}
+    <div class="panel border-shadow" data-index="{{ loop.index0 }}">
+        <div class="list">
+            <div class="container-more">
+                <div class="left-section">
+                    <span class="movie-list-title">{{ part["cat"] }}</span>
+                </div>
+                <a href="/type/{% if part["cat"] == '电影' %}1{% elif part["cat"] == '电视剧' %}2{% elif part["cat"] == '综艺' %}3{% else %}4{% endif %}.html" class="movie-list-more">更多<span class="iconfont icon-right-line"></span></a>
+            </div>
+            <div class="tab-content active">
+                <div class="movie-list-body flex">
+                    {% for v in part["items"] %}
+                    <div class="movie-list-item">
+                        <a href="/video/{{ v.id }}.html?title={{ v.title|urlencode }}" title="{{ v.title }}">
+                            <div class="movie-post-wrapper">
+                                <div class="movie-post-lazyload Lazy" data-original="/poster/{{ v.id }}.jpg" style="background-image: url('/static/images/load.png')"></div>
+                                <div class="movie-item-score">{{ v.year }}</div>
+                                <div class="movie-item-note">{{ v.note }}</div>
+                            </div>
+                            <div class="movie-info">
+                                <div class="movie-title txtHide" title="{{ v.title }}影片信息">{{ v.title }}</div>
+                                <div class="movie-sub txtHide" title="{{ v.title }}影片信息">{{ v.desc }}</div>
+                            </div>
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    <ul class="fixed-nav">
+        <li class="fixed-nav-content flex first ecTop" data-id="hot">热映</li>
+        <li class="fixed-nav-content flex first ecTop" data-id="0">电影</li>
+        <li class="fixed-nav-content flex first ecTop" data-id="1">剧集</li>
+        <li class="fixed-nav-content flex first ecTop" data-id="2">综艺</li>
+        <li class="fixed-nav-content flex first ecTop" data-id="3">动漫</li>
+        <li class="fixed-nav-content flex last ecTop"><span class="iconfont icon-shouqi"></span></li>
+    </ul>
+</div>
+{% endblock %}
+{% block scripts %}
+<style>
+    .head .banner-box { width: 100% !important; height: auto !important; }
+    .banner-box .swiper-slide { background: #111; padding-top: 58% !important; }
+    .banner-box .img-lazyload { object-fit: contain; }
+</style>
+<script src="/static/js/toast.script.js"></script>
+<script>
+$(function () {
+    var swiper = new Swiper('.banner-box.swiper-container', {
+        autoplay: { delay: 3000, disableOnInteraction: false },
+        loop: true,
+        pagination: { el: '.swiper-pagination' },
+        speed: 600
+    });
+    function loadDownloads() {
+        var section = document.getElementById('downloadSection');
+        var container = document.getElementById('downloadList');
+        if (!section || !container) return;
+        section.style.display = 'block';
+
+        Promise.all([
+            fetch('/api/completed_downloads').then(function(r) { return r.json(); }).catch(function() { return {completed: []}; }),
+            fetch('/api/active_downloads').then(function(r) { return r.json(); }).catch(function() { return {active: []}; })
+        ]).then(function(results) {
+            var completedRecords = results[0].completed || [];
+            var active = results[1].active || [];
+            var hadActive = window._hadActiveDownloads || false;
+            window._hadActiveDownloads = active.length > 0;
+            renderDownloadSection(container, completedRecords, active);
+            if (active.length > 0) {
+                setTimeout(loadDownloads, 2000);
+            } else if (hadActive) {
+                setTimeout(loadDownloads, 1000);
+            }
+        }).catch(function() {
+            renderDownloadSection(container, [], []);
+        });
+    }
+    function renderDownloadSection(container, completed, active) {
+        if (!completed.length && !active.length) {
+            container.innerHTML = '<div style="text-align:center;padding:20px 0;color:#999;font-size:13px">暂无离线视频，在播放页点击下载即可保存</div>';
+            return;
+        }
+        var html = '';
+        if (active.length > 0) {
+            html += '<div style="margin-bottom:12px">';
+            html += '<div style="font-size:13px;color:#007aff;font-weight:600;padding:8px 0 4px;border-bottom:1px solid #eee">下载中 (' + active.length + ')</div>';
+            for (var i = 0; i < active.length; i++) {
+                html += renderActiveItem(active[i]);
+            }
+            html += '</div>';
+        }
+        var groups = {};
+        var groupOrder = [];
+        for (var i = 0; i < completed.length; i++) {
+            var r = completed[i];
+            var t = r.title || '未知';
+            if (!groups[t]) { groups[t] = []; groupOrder.push(t); }
+            groups[t].push(r);
+        }
+        for (var g = 0; g < groupOrder.length; g++) {
+            var title = groupOrder[g];
+            var items = groups[title];
+            items.sort(function(a, b) { return (parseInt(a.ep) || 0) - (parseInt(b.ep) || 0); });
+            if (items.length > 1) {
+                html += '<div style="margin-bottom:12px">';
+                html += '<div style="font-size:13px;color:#666;font-weight:600;padding:8px 0 4px;border-bottom:1px solid #eee">' + title.replace(/</g, '&lt;') + ' <span style="color:#999;font-weight:400">(' + items.length + '集)</span></div>';
+                for (var j = 0; j < items.length; j++) {
+                    html += renderDownloadItem(items[j], true);
+                }
+                html += '</div>';
+            } else {
+                html += renderDownloadItem(items[0], false);
+            }
+        }
+        container.innerHTML = html;
+        bindDownloadEvents(container);
+    }
+    function renderActiveItem(a) {
+        var pct = a.pct || 0;
+        var statusText = a.total > 0 ? (a.done + '/' + a.total + ' 片段 ' + pct + '%') : '正在解析...';
+        if (a.status === 'error') statusText = '失败: ' + (a.error || '未知错误');
+        return '<div class="download-record" style="display:flex;align-items:center;padding:10px 0;border-bottom:1px solid #f5f5f5">' +
+            '<div style="flex:1;min-width:0">' +
+            '<div style="font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (a.title || '').replace(/</g, '&lt;') + '</div>' +
+            '<div style="font-size:12px;color:#666;margin-top:2px">' + (a.episode || a.name || '').replace(/</g, '&lt;') + '</div>' +
+            '<div style="margin-top:4px;height:3px;background:#eee;border-radius:2px;overflow:hidden">' +
+            '<div style="height:100%;width:' + pct + '%;background:' + (a.status === 'error' ? '#ff4444' : '#007aff') + ';transition:width .5s"></div>' +
+            '</div>' +
+            '<div style="font-size:11px;color:#999;margin-top:2px">' + statusText + '</div>' +
+            '</div></div>';
+    }
+    function renderDownloadItem(r, nested) {
+        var left = nested ? 'padding-left:12px;' : '';
+        var sizeText = '';
+        if (r.size && r.size > 0) {
+            if (r.size > 1073741824) sizeText = (r.size / 1073741824).toFixed(1) + ' GB';
+            else if (r.size > 1048576) sizeText = (r.size / 1048576).toFixed(0) + ' MB';
+            else if (r.size > 1024) sizeText = (r.size / 1024).toFixed(0) + ' KB';
+            else sizeText = r.size + ' B';
+        }
+        return '<div class="download-record" data-key="' + (r.key || '').replace(/"/g, '&quot;') + '" data-path="' + encodeURIComponent(r.path || '') + '" style="display:flex;align-items:center;padding:10px 0;border-bottom:1px solid #f5f5f5;' + left + '">' +
+            '<div style="flex:1;min-width:0">' +
+            (nested ? '' : '<div style="font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (r.title || '').replace(/</g, '&lt;') + '</div>') +
+            '<div style="font-size:12px;color:#666;margin-top:2px">' + (r.episode || '').replace(/</g, '&lt;') + (sizeText ? ' <span style="color:#999">' + sizeText + '</span>' : '') + '</div>' +
+            '</div>' +
+            '<a href="javascript:void(0)" class="local-play" style="margin-left:8px;padding:4px 12px;border-radius:15px;background:#007aff;color:#fff;font-size:12px;text-decoration:none;white-space:nowrap">播放</a>' +
+            '<a href="javascript:void(0)" class="dl-delete" style="margin-left:6px;padding:4px 10px;border-radius:15px;background:#f5f5f5;color:#ff4444;font-size:12px;text-decoration:none;white-space:nowrap">删除</a>' +
+            '</div>';
+    }
+    function bindDownloadEvents(container) {
+        container.querySelectorAll('.local-play').forEach(function(link) {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                var rec = link.closest('.download-record');
+                var path = decodeURIComponent(rec.getAttribute('data-path') || '');
+                if (window.AndroidBridge && window.AndroidBridge.openLocalVideo && path) {
+                    window.AndroidBridge.openLocalVideo(path);
+                }
+            });
+        });
+        container.querySelectorAll('.dl-delete').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                var rec = btn.closest('.download-record');
+                var key = rec.getAttribute('data-key') || '';
+                var path = decodeURIComponent(rec.getAttribute('data-path') || '');
+                if (!confirm('确认删除此下载记录？')) return;
+                if (window.AndroidBridge && window.AndroidBridge.deleteDownloadRecord) {
+                    window.AndroidBridge.deleteDownloadRecord(key, path);
+                    rec.style.transition = 'opacity .2s';
+                    rec.style.opacity = '0';
+                    setTimeout(function() {
+                        var group = rec.parentElement;
+                        rec.remove();
+                        if (group && group.classList && !group.classList.contains('download-record')) {
+                            var remaining = group.querySelectorAll('.download-record');
+                            if (remaining.length === 0) {
+                                group.remove();
+                            } else {
+                                var header = group.querySelector('div:first-child');
+                                if (header) header.innerHTML = header.innerHTML.replace(/\(\d+集\)/, '(' + remaining.length + '集)');
+                            }
+                        }
+                        checkEmpty();
+                    }, 200);
+                }
+            });
+        });
+        function checkEmpty() {
+            if (!container.querySelector('.download-record')) {
+                container.innerHTML = '<div style="text-align:center;padding:20px 0;color:#999;font-size:13px">暂无离线视频，在播放页点击下载即可保存</div>';
+            }
+        }
+    }
+    loadDownloads();
+    $(".ecTop").click(function () {
+        var id = $(this).attr("data-id");
+        if (id !== undefined) {
+            var el = $('.panel[data-index="' + id + '"]');
+            if (el.length) {
+                var top = el.offset().top - 80;
+                $('html,body').animate({ scrollTop: top }, 300);
+            }
+        } else {
+            $('html,body').animate({ scrollTop: 0 }, 300);
+        }
+    });
+});
+</script>
+{% endblock %}
+
+
+
