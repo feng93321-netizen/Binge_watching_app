@@ -59,7 +59,9 @@ cd apk
 
 ## 运行截图
 
-![运行截图](docs/screenshot.png)
+| 主页(分类 / 热映) | 搜索结果 | 详情 + 播放 | 横屏播放 |
+|---|---|---|---|
+| ![主页](docs/screenshot-2.jpg) | ![搜索](docs/screenshot-search.jpg) | ![详情播放](docs/screenshot-1.jpg) | ![横屏播放](docs/screenshot-3.jpg) |
 
 ## 许可
 
