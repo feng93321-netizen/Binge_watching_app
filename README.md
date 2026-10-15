@@ -68,3 +68,5 @@ cd apk
 本项目代码采用 **MIT License**。详见 [LICENSE](LICENSE)。
 
 FFmpeg 原生库与运行其依赖的第三方组件遵循其各自许可证,不随本仓库分发。
+
+> **使用前请阅读 [免责声明 (DISCLAIMER)](DISCLAIMER.md)**。本项目仅供技术研究与逆向学习,不得用于规避原站访问控制或传播盗版内容。
