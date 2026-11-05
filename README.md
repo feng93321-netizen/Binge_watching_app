@@ -4,6 +4,20 @@
 
 > 本仓库仅开源 APK 相关代码。配套的 Web 端(仿站)代码与数据**不开源**,构建 APK 时需要自备(见下文)。
 
+## 下载 APK
+
+<p align="center">
+  <a href="https://raw.githubusercontent.com/feng93321-netizen/Binge_watching_app/main/cupfox-release.apk">
+    <img src="docs/apk-qrcode.png" alt="扫码下载 cupfox-release.apk" width="240">
+  </a>
+</p>
+
+<p align="center"><b>手机扫码直接下载</b> · <code>cupfox-release.apk</code> · 47 MB · arm64-v8a</p>
+
+- 直接下载:<https://raw.githubusercontent.com/feng93321-netizen/Binge_watching_app/main/cupfox-release.apk>
+- 文件页:<https://github.com/feng93321-netizen/Binge_watching_app/blob/main/cupfox-release.apk>
+- 安装提示:需允许「安装未知来源应用」;若微信/QQ 内置浏览器拦截下载,请改用系统相机或手机浏览器扫码。
+
 ## 项目结构
 
 ```
