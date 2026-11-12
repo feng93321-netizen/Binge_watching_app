@@ -5,6 +5,7 @@ import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Handler;
+import android.webkit.CookieManager;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.util.Log;
@@ -22,6 +23,13 @@ public final class BrowserBridge {
     private static Handler handler;
     private static Context appContext;
     private static volatile CountDownLatch captchaLatch;
+    // The upstream verification response currently identifies itself through
+    // the page title ("系统安全验证"), while body text can be empty.
+    private static final String CAPTCHA_PAGE_EXPRESSION =
+            "(()=>{const t=((document.title||'')+' '+((document.body&&document.body.innerText)||'')).toLowerCase();" +
+            "return t.includes('系统安全验证')||t.includes('安全验证')||t.includes('请完成验证')||" +
+            "t.includes('security verification')||t.includes('captcha')||" +
+            "!!document.querySelector('#verify,.verify,[class*=captcha],[id*=captcha],input[name=check]');})()";
 
     public static void initialize(WebView view, Handler mainHandler, Context context) {
         webView = view;
@@ -34,6 +42,26 @@ public final class BrowserBridge {
         handler = null;
     }
 
+    /**
+     * Check the upstream session as soon as the app launches. This uses the
+     * hidden bridge WebView only: the local Flask UI remains visible. If the
+     * upstream presents a captcha, loadWithRetry opens the existing dialog.
+     */
+    public static void ensureSession() {
+        new Thread(() -> {
+            try {
+                if (handler == null || !isNetworkAvailable()) return;
+                String probe = "(()=>{const captcha=" + CAPTCHA_PAGE_EXPRESSION + ";" +
+                        "return JSON.stringify({status:captcha?403:200,captcha:captcha});})()";
+                String result = load(ORIGIN + "/", probe);
+                Log.i(TAG, "startup session probe: " + result);
+            } catch (Exception error) {
+                // A probe failure must never block the bundled local UI.
+                Log.w(TAG, "startup session probe failed", error);
+            }
+        }, "cupfox-session-probe").start();
+    }
+
     public static synchronized String fetch(String type, String value) {
         try {
             Log.i(TAG, "fetch " + type + " " + value);
@@ -41,7 +69,19 @@ public final class BrowserBridge {
             String url;
             String js;
             if ("enc".equals(type)) {
+                // value = /play/vid-src-ep.html (play page path)
+                // 播放页里 muiplayer 在 iframe 中,顶层 player_aaaa 不存在。
+                // 直接加载 muiplayer.php,从它的 window.player_aaaa.url 读 enc。
+                // 从播放页路径解析出 muiplayer 的 iframe src:
+                //   /play/123-1-1.html  →  读该页 iframe 的 src → /foxplay/muiplayer.php?vid=<enc>
+                // Playback enc values belong to the upstream verification
+                // session. Never reuse a persisted value: it may predate a
+                // freshly completed captcha and causes playback to fail.
                 url = ORIGIN + value;
+                // Keep the original, known-good probe from the pre-landscape APK.
+                // The upstream playback page exposes player_aaaa on its top window;
+                // complex iframe/HTML parsing here caused evaluateJavascript to
+                // return null before the player page could be rendered.
                 js = "JSON.stringify({status:200,len:document.documentElement.outerHTML.length,enc:(window.player_aaaa&&window.player_aaaa.url)||null})";
             } else if ("detail".equals(type)) {
                 url = ORIGIN + "/video/" + value + ".html";
@@ -65,7 +105,7 @@ public final class BrowserBridge {
         }
     }
 
-    private static String load(String url, String script) throws Exception {
+    private static synchronized String load(String url, String script) throws Exception {
         return loadWithRetry(url, script, 0);
     }
 
@@ -75,8 +115,10 @@ public final class BrowserBridge {
         handler.post(() -> {
             webView.setWebViewClient(new WebViewClient() {
                 private boolean captured;
+                private int playbackProbeAttempts;
 
                 @Override public void onPageCommitVisible(WebView view, String loadedUrl) {
+                    Log.i(TAG, "commit " + loadedUrl + " requested=" + url);
                     capture(view, loadedUrl);
                 }
 
@@ -84,16 +126,38 @@ public final class BrowserBridge {
                     capture(view, loadedUrl);
                 }
 
+                @Override public void onReceivedError(WebView view, android.webkit.WebResourceRequest request,
+                                                       android.webkit.WebResourceError error) {
+                    if (request != null && request.isForMainFrame()) {
+                        Log.e(TAG, "bridge main frame error code=" + error.getErrorCode()
+                                + " desc=" + error.getDescription() + " url=" + request.getUrl());
+                    }
+                }
+
                 private void capture(WebView view, String loadedUrl) {
                     Log.i(TAG, "loaded " + loadedUrl);
                     if (captured || !loadedUrl.contains("cupfox.ai")) return;
                     captured = true;
-                    handler.postDelayed(() -> view.evaluateJavascript(script, encoded -> {
-                            try { result[0] = new JSONArray("[" + encoded + "]").getString(0); }
-                            catch (Exception error) { result[0] = "{\"error\":\"decode failed\"}"; }
-                            Log.i(TAG, "result " + result[0]);
-                            done.countDown();
-                        }), 700);
+                    handler.postDelayed(() -> evaluateWhenReady(view, loadedUrl), 700);
+                }
+
+                private void evaluateWhenReady(WebView view, String loadedUrl) {
+                    view.evaluateJavascript(script, encoded -> {
+                        Log.i(TAG, "evaluate raw url=" + loadedUrl + " raw=" + encoded);
+                        try { result[0] = new JSONArray("[" + encoded + "]").getString(0); }
+                        catch (Exception error) { result[0] = "{\"error\":\"decode failed\"}"; }
+                        boolean playbackMissing = loadedUrl.contains("/play/") &&
+                                (result[0] == null || result[0].contains("\"enc\":null") ||
+                                 result[0].equals("null") || result[0].contains("\"enc\":\"\""));
+                        if (playbackMissing && playbackProbeAttempts++ < 24) {
+                            // The real player iframe is populated asynchronously
+                            // after the parent page finishes loading.
+                            handler.postDelayed(() -> evaluateWhenReady(view, loadedUrl), 300);
+                            return;
+                        }
+                        Log.i(TAG, "result " + result[0]);
+                        done.countDown();
+                    });
                 }
             });
             webView.loadUrl(url);
@@ -117,6 +181,11 @@ public final class BrowserBridge {
             } catch (InterruptedException e) {
                 Log.e(TAG, "captcha wait interrupted");
             }
+            // Cookies set in the captcha WebView are shared by CookieManager.
+            // Flush them before reloading the bridge page. Keep the base APK's
+            // known-good playenc values; a fresh bridge value is only needed
+            // when a path is not already present in that cache.
+            CookieManager.getInstance().flush();
             return loadWithRetry(url, script, retryCount + 1);
         }
 
@@ -154,15 +223,27 @@ public final class BrowserBridge {
         });
 
         dialogWebView.loadUrl(url);
-        android.widget.FrameLayout container = new android.widget.FrameLayout(appContext);
-        container.addView(dialogWebView, new android.widget.FrameLayout.LayoutParams(
+        // Never infer success from a single page-finished callback: the
+        // upstream may render the challenge asynchronously. Keep the dialog
+        // visible until the person explicitly confirms completion.
+        android.widget.LinearLayout container = new android.widget.LinearLayout(appContext);
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        container.addView(dialogWebView, new android.widget.LinearLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        android.widget.Button completed = new android.widget.Button(appContext);
+        completed.setText("验证完成，继续");
+        completed.setAllCaps(false);
+        completed.setOnClickListener(v -> dialog.dismiss());
+        container.addView(completed, new android.widget.LinearLayout.LayoutParams(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-            android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
         dialog.setContentView(container);
-        dialog.getWindow().setLayout(
-            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-            android.view.ViewGroup.LayoutParams.MATCH_PARENT);
         dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setLayout(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT);
+        }
     }
 
     private static boolean isNetworkAvailable() {

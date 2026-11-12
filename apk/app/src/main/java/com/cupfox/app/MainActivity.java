@@ -62,6 +62,7 @@ public class MainActivity extends Activity {
     private static final String OFFLINE_URL = "http://127.0.0.1:5000/offline";
     private static final long FULLSCREEN_UI_DELAY_MS = 1800;
     private static final Pattern PLAY_URL_PATTERN = Pattern.compile("/play/(\\d+)-\\d+-\\d+\\.html");
+    // 这个域名是不良域名,含有颜色信息，进行拦截
     private static final String[] BLOCKED_AD_HOSTS = {
             "mdtj2ui.com",
             "4obyayl.com",
@@ -185,7 +186,14 @@ public class MainActivity extends Activity {
             }
 
             @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (url.startsWith(APP_URL) || url.startsWith(UPSTREAM_URL)) return false;
+                if (url.startsWith(APP_URL)) return false;
+                // The visible WebView is the bundled simulation UI. Keep any
+                // upstream verification/metadata work in bridgeWebView so a
+                // captcha completion cannot replace the local layout.
+                if (url.startsWith(UPSTREAM_URL)) {
+                    view.loadUrl(APP_URL);
+                    return true;
+                }
                 return true;
             }
 
@@ -227,13 +235,19 @@ public class MainActivity extends Activity {
 
         new Thread(() -> {
             try {
+                Log.i("CupfoxBridge", "bootstrap start");
                 File webRoot = new File(getFilesDir(), "web");
                 copyAssetTree("web", webRoot);
+                Log.i("CupfoxBridge", "asset copy done, starting Python");
                 if (!Python.isStarted()) Python.start(new AndroidPlatform(getApplicationContext()));
+                Log.i("CupfoxBridge", "python started, loading server_main");
                 PyObject module = Python.getInstance().getModule("server_main");
                 module.callAttr("start", webRoot.getAbsolutePath());
-                waitForServer(60);
+                Log.i("CupfoxBridge", "flask launch requested, waiting for server");
+                waitForServer(300);
+                Log.i("CupfoxBridge", "flask server ready");
             } catch (Exception error) {
+                Log.e("CupfoxBridge", "bootstrap failed", error);
                 handler.post(() -> webView.loadData(
                         "<h2>启动失败</h2><pre>" + escapeHtml(error.toString()) + "</pre>",
                         "text/html", "UTF-8"));
@@ -317,15 +331,33 @@ public class MainActivity extends Activity {
                 conn.setInstanceFollowRedirects(true);
                 conn.setRequestProperty("Referer", "http://www.cupfox.ai/");
                 conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36");
+                // 支持断点续传：若同名半成品存在且已带 moov，从已有大小处继续写
+                long resumeFrom = 0L;
+                if (target.exists() && target.length() > 1024) {
+                    if (hasMoovAtom(target)) {
+                        resumeFrom = target.length();
+                        conn.setRequestProperty("Range", "bytes=" + resumeFrom + "-");
+                        Log.d("CupfoxDL", "resuming existing file from " + resumeFrom + " bytes");
+                    } else {
+                        target.delete();
+                    }
+                }
                 conn.connect();
                 int code = conn.getResponseCode();
-                if (code < 200 || code >= 400) throw new IOException("HTTP " + code);
+                if ((code < 200 || code >= 400) && code != 206) throw new IOException("HTTP " + code);
                 state.totalBytes = conn.getContentLengthLong();
                 in = conn.getInputStream();
-                out = new FileOutputStream(target);
+                out = new FileOutputStream(target, true);
+                if (resumeFrom > 0) {
+                    state.downloadedBytes = resumeFrom;
+                    state.totalBytes = state.totalBytes + resumeFrom;
+                }
                 byte[] buffer = new byte[64 * 1024];
                 int read;
                 while ((read = in.read(buffer)) != -1) {
+                    synchronized (state) {
+                        while (state.status.equals("paused")) state.wait();
+                    }
                     out.write(buffer, 0, read);
                     state.downloadedBytes += read;
                     if (state.totalBytes > 0) {
@@ -336,29 +368,73 @@ public class MainActivity extends Activity {
                 out.close();
                 out = null;
                 if (conn != null) { conn.disconnect(); conn = null; }
-                boolean valid = target.length() > 1024 * 100 && hasMoovAtom(target);
-                if (!valid) {
-                    target.delete();
-                    state.status = "failed";
-                    state.error = "视频文件不完整，无法播放";
-                    lastDownloadError = state.error;
-                    Log.e("CupfoxDL", "downloaded file invalid, size=" + target.length() + " hasMoov=false");
+                if (state.status.equals("cancelled")) {
+                    Log.d("CupfoxDL", "cancelled, keeping partial file: " + target.getAbsolutePath());
                 } else {
-                    state.progress = 100;
-                    state.status = "complete";
-                    state.path = target.getAbsolutePath();
-                    Log.d("CupfoxDL", "download complete: " + state.path + " size=" + target.length());
+                    boolean valid = target.length() > 1024 * 100 && hasMoovAtom(target);
+                    if (!valid) {
+                        target.delete();
+                        state.status = "failed";
+                        state.error = "视频文件不完整，无法播放";
+                        lastDownloadError = state.error;
+                        Log.e("CupfoxDL", "downloaded file invalid, size=" + target.length() + " hasMoov=false");
+                    } else {
+                        state.progress = 100;
+                        state.status = "complete";
+                        state.path = target.getAbsolutePath();
+                        Log.d("CupfoxDL", "download complete: " + state.path + " size=" + target.length());
+                    }
                 }
             } catch (Exception e) {
-                state.status = "failed";
-                state.error = e.getClass().getSimpleName() + ": " + (e.getMessage() == null ? "" : e.getMessage());
-                lastDownloadError = state.error;
-                Log.e("CupfoxDL", "download failed", e);
+                if (state.status.equals("cancelled")) {
+                    Log.d("CupfoxDL", "cancelled, keeping partial file");
+                } else {
+                    state.status = "failed";
+                    state.error = e.getClass().getSimpleName() + ": " + (e.getMessage() == null ? "" : e.getMessage());
+                    lastDownloadError = state.error;
+                    Log.e("CupfoxDL", "download failed", e);
+                }
             } finally {
                 try { if (in != null) in.close(); } catch (Exception ignored) {}
                 try { if (out != null) out.close(); } catch (Exception ignored) {}
                 if (conn != null) conn.disconnect();
             }
+        }
+
+        @JavascriptInterface
+        public void pauseDownload(long downloadId) {
+            DownloadState state = downloadStates.get(downloadId);
+            if (state == null) return;
+            synchronized (state) {
+                state.status = "paused";
+                state.notifyAll();
+            }
+            Log.d("CupfoxDL", "download paused: " + downloadId);
+        }
+
+        @JavascriptInterface
+        public void resumeDownload(long downloadId) {
+            DownloadState state = downloadStates.get(downloadId);
+            if (state == null) return;
+            synchronized (state) {
+                if (state.status.equals("paused")) {
+                    state.status = "running";
+                    state.notifyAll();
+                    Log.d("CupfoxDL", "download resumed: " + downloadId);
+                }
+            }
+        }
+
+        @JavascriptInterface
+        public void cancelDownload(long downloadId) {
+            DownloadState state = downloadStates.get(downloadId);
+            if (state == null) return;
+            state.status = "cancelled";
+            state.error = "已取消";
+            synchronized (state) {
+                state.notifyAll();
+            }
+            Log.d("CupfoxDL", "download cancelled: " + downloadId);
         }
 
         @JavascriptInterface
@@ -773,10 +849,15 @@ public class MainActivity extends Activity {
                             webView.loadUrl(OFFLINE_URL);
                             return;
                         }
-                        SharedPreferences prefs = getSharedPreferences("cupfox", MODE_PRIVATE);
-                        boolean verified = prefs.getBoolean("verified", false);
-                        webView.loadUrl(verified ? APP_URL : UPSTREAM_URL);
-                        if (verified) checkSessionAsync();
+                        // Always launch the bundled Flask simulation in the visible
+                        // WebView. The original site is never the application UI.
+                        // BrowserBridge retains its own hidden WebView when metadata
+                        // or verification state must be checked.
+                        webView.loadUrl(APP_URL);
+                        // Probe the upstream session after the local UI is ready.
+                        // If expired, BrowserBridge shows a captcha dialog without
+                        // replacing the local simulation layout.
+                        BrowserBridge.ensureSession();
                     });
                     return;
                 }
@@ -836,7 +917,9 @@ public class MainActivity extends Activity {
                         if (!isNetworkAvailable()) {
                             webView.loadUrl(OFFLINE_URL);
                         } else {
-                            webView.loadUrl(UPSTREAM_URL);
+                            // Session refreshes must not replace the simulation UI
+                            // with the upstream site.
+                            webView.loadUrl(APP_URL);
                         }
                     });
                 }
@@ -853,6 +936,8 @@ public class MainActivity extends Activity {
 
     private void hideFullscreenSystemUi() {
         if (fullscreenView == null) return;
+        // 系统竖屏锁定时仍强制横屏播放
+        setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         View decor = getWindow().getDecorView();
         decor.setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -870,6 +955,7 @@ public class MainActivity extends Activity {
     }
 
     private void showNormalSystemUi() {
+        setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         View decor = getWindow().getDecorView();
         decor.setOnSystemUiVisibilityChangeListener(null);
         decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
